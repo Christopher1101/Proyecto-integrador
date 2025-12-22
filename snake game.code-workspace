@@ -1,339 +1,228 @@
 import tkinter as tk
-from tkinter import messagebox
 import random
-import os
 
-# ----- Configuración -----
-CELL_SIZE = 20
-COLUMNS = 30   # ancho en celdas
-ROWS = 20      # alto en celdas
-WIDTH = CELL_SIZE * COLUMNS
-HEIGHT = CELL_SIZE * ROWS
-GAME_SPEED = 120  # ms entre frames (ajusta para velocidad)
+ANCHO = 500
+ALTO = 500
+TAM = 20
+VELOCIDAD = 100
 
-HIGHSCORE_FILE = "highscores.txt"
-MAX_HIGH_SCORES = 5
-
-# ----- Utilidades -----
-def cargar_highscores():
-    scores = []
-    if os.path.exists(HIGHSCORE_FILE):
-        try:
-            with open(HIGHSCORE_FILE, "r", encoding="utf-8") as f:
-                for line in f:
-                    line = line.strip()
-                    if line:
-                        try:
-                            name, val = line.split(",")
-                            scores.append((name, int(val)))
-                        except ValueError:
-                            continue
-        except Exception:
-            return []
-    scores.sort(key=lambda x: x[1], reverse=True)
-    return scores[:MAX_HIGH_SCORES]
-
-def guardar_highscore(name, score):
-    scores = cargar_highscores()
-    scores.append((name, score))
-    scores.sort(key=lambda x: x[1], reverse=True)
-    scores = scores[:MAX_HIGH_SCORES]
-    try:
-        with open(HIGHSCORE_FILE, "w", encoding="utf-8") as f:
-            for n, s in scores:
-                f.write(f"{n},{s}\n")
-    except Exception as e:
-        print("Error guardando highscore:", e)
-
-# ----- Clase del Juego -----
 class SnakeGame:
-    def __init__(self, master):
-        self.master = master
-        master.title("Snake - Proyecto")
-        master.resizable(False, False)
-
-        # Estados
-        self.state = "MENU"  # MENU, PLAYING, PAUSED, GAMEOVER, RULES, SCORES
-        self.menu_options = ["Iniciar juego", "Reglas", "Puntajes", "Salir"]
-        self.menu_index = 0
-
-        # Frames
-        self.menu_frame = tk.Frame(master, width=WIDTH, height=HEIGHT)
-        self.game_frame = tk.Frame(master, width=WIDTH, height=HEIGHT)
-        self.menu_frame.pack()
-
-        # Canvas para juego
-        self.canvas = tk.Canvas(self.game_frame, width=WIDTH, height=HEIGHT, bg="black")
+    def __init__(self, root):
+        self.root = root
+        self.root.title("Snake Game")
+        self.canvas = tk.Canvas(root, width=ANCHO, height=ALTO, bg="black")
         self.canvas.pack()
 
-        # Etiqueta de puntaje (en game_frame)
-        self.score_label = tk.Label(self.game_frame, text="Puntaje: 0", font=("Arial", 14))
-        self.score_label.pack(anchor="nw")
+        self.menu_opciones = ["Iniciar Juego", "Reglas", "Puntajes", "Salir"]
+        self.menu_index = 0
+        self.estado = "menu"
 
-        # Widgets del menú
-        self.menu_title = tk.Label(self.menu_frame, text="Snake", font=("Arial", 24))
-        self.menu_title.pack(pady=20)
-        self.option_labels = []
-        for opt in self.menu_options:
-            lbl = tk.Label(self.menu_frame, text=opt, font=("Arial", 18), width=20, anchor="w")
-            self.option_labels.append(lbl)
-            lbl.pack(pady=5)
+        self.puntajes = []  # [(nombre, puntaje)]
 
-        self.instr_label = tk.Label(self.menu_frame, text="Usa ↑ ↓ para moverte, Enter para seleccionar", font=("Arial", 10))
-        self.instr_label.pack(pady=10)
+        self.root.bind("<Key>", self.teclas)
+        self.mostrar_menu()
 
-        # Bindings globales (una sola vez)
-        master.bind("<Key>", self.on_key)  # captura todas las teclas y delega según estado
-
-        # Variables del juego
-        self.reset_game_vars()
-
-        # Dibuja menú inicial
-        self.update_menu_ui()
-
-    def reset_game_vars(self):
-        self.snake = [(COLUMNS//2, ROWS//2)]
-        self.direction = (1, 0)  # dx, dy
-        self.next_direction = self.direction
-        self.food = None
-        self.score = 0
-        self.running_after_id = None
-        self.paused = False
-        self.game_speed = GAME_SPEED
-
-    # ----- Menú -----
-    def update_menu_ui(self):
-        for i, lbl in enumerate(self.option_labels):
-            if i == self.menu_index:
-                lbl.config(bg="blue", fg="white")
-            else:
-                lbl.config(bg=self.master.cget("bg"), fg="black")
-
-    def menu_select(self):
-        choice = self.menu_options[self.menu_index]
-        if choice == "Iniciar juego":
-            self.start_game()
-        elif choice == "Reglas":
-            self.show_rules()
-        elif choice == "Puntajes":
-            self.show_scores()
-        elif choice == "Salir":
-            self.master.quit()
-
-    def show_rules(self):
-        self.state = "RULES"
-        # ventana de reglas simple en un messagebox
-        reglas = (
-            "Reglas:\n"
-            "- Usa las flechas ↑ ↓ ← → para mover la serpiente.\n"
-            "- Come la comida para aumentar puntaje y tamaño.\n"
-            "- Evita chocar con paredes o contigo mismo.\n"
-            "- Presiona TAB para pausar/reanudar.\n"
-            "- Presiona ESC en cualquier momento para volver al menú."
-        )
-        messagebox.showinfo("Reglas", reglas)
-        self.state = "MENU"
-        self.update_menu_ui()
-
-    def show_scores(self):
-        self.state = "SCORES"
-        scores = cargar_highscores()
-        if not scores:
-            messagebox.showinfo("Puntajes", "Aún no hay puntajes guardados.")
-        else:
-            texto = "Puntajes máximos:\n"
-            for i, (n, s) in enumerate(scores, 1):
-                texto += f"{i}. {n} - {s}\n"
-            messagebox.showinfo("Puntajes", texto)
-        self.state = "MENU"
-        self.update_menu_ui()
-
-    # ----- Juego -----
-    def start_game(self):
-        # Reiniciar variables
-        self.reset_game_vars()
-        self.state = "PLAYING"
-        self.menu_frame.pack_forget()
-        self.game_frame.pack()
-        self.spawn_food()
-        self.draw_all()
-        self.schedule_next_frame()
-
-    def end_game(self):
-        # cancelar cualquier after en curso
-        if self.running_after_id:
-            self.master.after_cancel(self.running_after_id)
-            self.running_after_id = None
-        self.state = "GAMEOVER"
+    # ---------------- MENÚ ----------------
+    def mostrar_menu(self):
+        self.estado = "menu"
         self.canvas.delete("all")
-        self.canvas.create_text(WIDTH//2, HEIGHT//2 - 20, text="GAME OVER", fill="red", font=("Arial", 36))
-        self.canvas.create_text(WIDTH//2, HEIGHT//2 + 20, text=f"Puntaje: {self.score}", fill="white", font=("Arial", 20))
-        # guardar puntaje si es top
-        name = "Jugador"
-        guardar_highscore(name, self.score)
-        # ofrecer volver al menú con botón
-        self.master.after(1500, self.return_to_menu)
+        self.canvas.create_text(250, 80, text="SNAKE GAME",
+                                fill="lime", font=("Arial", 28, "bold"))
 
-    def return_to_menu(self):
-        # Asegura que no se cree otra ventana; solo cambia frames
-        if self.running_after_id:
-            try:
-                self.master.after_cancel(self.running_after_id)
-            except Exception:
-                pass
-            self.running_after_id = None
-        self.game_frame.pack_forget()
-        self.menu_frame.pack()
-        self.state = "MENU"
-        self.update_menu_ui()
+        for i, opcion in enumerate(self.menu_opciones):
+            color = "yellow" if i == self.menu_index else "white"
+            self.canvas.create_text(250, 180 + i * 40,
+                                    text=opcion,
+                                    fill=color,
+                                    font=("Arial", 18))
 
-    def spawn_food(self):
-        # genera posición aleatoria no ocupada por la serpiente
-        available = [(x, y) for x in range(COLUMNS) for y in range(ROWS) if (x, y) not in self.snake]
-        if not available:
-            self.food = None
+    # ---------------- JUEGO ----------------
+    def iniciar_juego(self):
+        self.estado = "juego"
+        self.canvas.delete("all")
+        self.direccion = "Right"
+        self.pausa = False
+
+        self.snake = [(100, 100), (80, 100), (60, 100)]
+        self.comida = self.nueva_comida()
+        self.puntaje = 0
+
+        self.bucle_juego()
+
+    def nueva_comida(self):
+        return (
+            random.randrange(0, ANCHO, TAM),
+            random.randrange(0, ALTO, TAM)
+        )
+
+    def bucle_juego(self):
+        if self.estado != "juego":
             return
-        self.food = random.choice(available)
 
-    def schedule_next_frame(self):
-        if self.state == "PLAYING" and not self.paused:
-            self.running_after_id = self.master.after(self.game_speed, self.game_step)
+        if not self.pausa:
+            x, y = self.snake[0]
 
-    def game_step(self):
-        # actualizar dirección
-        self.direction = self.next_direction
-        # calcular nueva cabeza
-        head_x, head_y = self.snake[0]
-        dx, dy = self.direction
-        new_head = (head_x + dx, head_y + dy)
-        # detectar colisión con paredes
-        x, y = new_head
-        if x < 0 or x >= COLUMNS or y < 0 or y >= ROWS:
-            self.end_game()
-            return
-        # detectar colisión consigo misma
-        if new_head in self.snake:
-            self.end_game()
-            return
-        # insertar nueva cabeza
-        self.snake.insert(0, new_head)
-        # detectar comida
-        if self.food and new_head == self.food:
-            self.score += 1
-            self.score_label.config(text=f"Puntaje: {self.score}")
-            self.spawn_food()
-        else:
-            # mover (eliminar cola)
-            self.snake.pop()
-        # redraw
-        self.draw_all()
-        # programar siguiente frame
-        self.schedule_next_frame()
+            if self.direccion == "Up":
+                y -= TAM
+            elif self.direccion == "Down":
+                y += TAM
+            elif self.direccion == "Left":
+                x -= TAM
+            elif self.direccion == "Right":
+                x += TAM
 
-    def draw_all(self):
-        c = self.canvas
-        c.delete("all")
-        # dibujar comida
-        if self.food:
-            fx, fy = self.food
-            c.create_rectangle(fx*CELL_SIZE, fy*CELL_SIZE, (fx+1)*CELL_SIZE, (fy+1)*CELL_SIZE, fill="red")
-        # dibujar serpiente
-        for i, (sx, sy) in enumerate(self.snake):
-            color = "green" if i == 0 else "lightgreen"
-            c.create_rectangle(sx*CELL_SIZE, sy*CELL_SIZE, (sx+1)*CELL_SIZE, (sy+1)*CELL_SIZE, fill=color, outline="")
-        # puntaje superior izquierdo (ya hay label, pero se deja)
-        # mostrar pausa si aplica
-        if self.paused:
-            c.create_text(WIDTH//2, HEIGHT//2, text="PAUSADO", fill="yellow", font=("Arial", 36))
+            nueva_cabeza = (x, y)
 
-    # ----- Manejo de teclas (único binding) -----
-    def on_key(self, event):
-        key = event.keysym
-        # Debug: print("key:", key)
-        if self.state == "MENU":
-            # Solo procesar flechas, Enter, Esc (aunque Esc en menu puede salir)
-            if key in ("Up", "Down"):
-                if key == "Up":
-                    self.menu_index = (self.menu_index - 1) % len(self.menu_options)
-                elif key == "Down":
-                    self.menu_index = (self.menu_index + 1) % len(self.menu_options)
-                self.update_menu_ui()
-            elif key in ("Return", "KP_Enter"):
-                self.menu_select()
-            elif key == "Escape":
-                # En menú, Escape puede cerrar la app
-                self.master.quit()
-            else:
-                # Ignorar otras teclas
-                return
-        elif self.state == "PLAYING":
-            # En juego: flechas controlan la serpiente, Tab pausa, Esc vuelve al menú
-            if key == "Tab":
-                # pausa/reanuda
-                self.toggle_pause()
-            elif key == "Escape":
-                # volver al menú (detener juego limpio)
-                self.return_to_menu()
-            elif key in ("Up", "Down", "Left", "Right"):
-                self.set_direction_from_key(key)
-            else:
-                # ignorar otras teclas para evitar salidas no deseadas
-                return
-        elif self.state == "PAUSED":
-            # en pausa: Tab para reanudar, Esc para volver al menú, flechas ignoradas
-            if key == "Tab":
-                self.toggle_pause()
-            elif key == "Escape":
-                self.return_to_menu()
-            else:
-                return
-        elif self.state in ("GAMEOVER", "RULES", "SCORES"):
-            # en estos estados, ESC vuelve al menú, Enter también para aceptación
-            if key == "Escape":
-                self.return_to_menu()
-            elif key in ("Return", "KP_Enter"):
-                self.return_to_menu()
-            else:
+            if (x < 0 or x >= ANCHO or y < 0 or y >= ALTO or
+                nueva_cabeza in self.snake):
+                self.pantalla_guardar_puntaje()
                 return
 
-    def set_direction_from_key(self, key):
-        dx, dy = self.direction
-        if key == "Up":
-            nd = (0, -1)
-        elif key == "Down":
-            nd = (0, 1)
-        elif key == "Left":
-            nd = (-1, 0)
-        elif key == "Right":
-            nd = (1, 0)
-        else:
-            return
-        # prevenir giro 180° instantáneo
-        if (nd[0] == -dx and nd[1] == -dy) and len(self.snake) > 1:
-            return
-        self.next_direction = nd
+            self.snake.insert(0, nueva_cabeza)
 
-    def toggle_pause(self):
-        if self.state != "PLAYING":
-            return
-        self.paused = not self.paused
-        if not self.paused:
-            # reanudar
-            self.schedule_next_frame()
-        else:
-            # pausar: cancelar scheduled frame
-            if self.running_after_id:
-                try:
-                    self.master.after_cancel(self.running_after_id)
-                except Exception:
-                    pass
-                self.running_after_id = None
-        self.draw_all()
+            if nueva_cabeza == self.comida:
+                self.puntaje += 1
+                self.comida = self.nueva_comida()
+            else:
+                self.snake.pop()
 
-# ----- Ejecución -----
+            self.dibujar()
+
+        self.root.after(VELOCIDAD, self.bucle_juego)
+
+    def dibujar(self):
+        self.canvas.delete("all")
+
+        for x, y in self.snake:
+            self.canvas.create_rectangle(x, y, x+TAM, y+TAM, fill="green")
+
+        fx, fy = self.comida
+        self.canvas.create_oval(fx, fy, fx+TAM, fy+TAM, fill="red")
+
+        self.canvas.create_text(10, 10, anchor="nw",
+                                text=f"Puntaje: {self.puntaje}",
+                                fill="white")
+
+        if self.pausa:
+            self.canvas.create_text(250, 250,
+                                    text="PAUSA",
+                                    fill="red",
+                                    font=("Arial", 28, "bold"))
+
+    # ---------------- GUARDAR PUNTAJE ----------------
+    def pantalla_guardar_puntaje(self):
+        self.estado = "guardar"
+        self.canvas.delete("all")
+
+        self.canvas.create_text(250, 150,
+                                text="GAME OVER",
+                                fill="red",
+                                font=("Arial", 26, "bold"))
+
+        self.canvas.create_text(250, 200,
+                                text=f"Puntaje: {self.puntaje}",
+                                fill="white",
+                                font=("Arial", 16))
+
+        self.canvas.create_text(250, 240,
+                                text="Ingresa tu nombre:",
+                                fill="white")
+
+        self.nombre_entry = tk.Entry(self.root, font=("Arial", 14))
+        self.canvas.create_window(250, 270, window=self.nombre_entry)
+        self.nombre_entry.focus()
+
+        self.canvas.create_text(250, 320,
+                                text="Presiona ENTER para guardar",
+                                fill="gray")
+
+    def guardar_puntaje(self):
+        nombre = self.nombre_entry.get()
+        if nombre:
+            self.puntajes.append((nombre, self.puntaje))
+        self.nombre_entry.destroy()
+        self.mostrar_menu()
+
+    # ---------------- REGLAS ----------------
+    def mostrar_reglas(self):
+        self.estado = "reglas"
+        self.canvas.delete("all")
+        self.canvas.create_text(250, 200,
+                                text="Usa las flechas para moverte\nP para pausar\nESC para salir",
+                                fill="white",
+                                font=("Arial", 16),
+                                justify="center")
+        self.canvas.create_text(250, 350,
+                                text="Presiona ENTER para volver",
+                                fill="gray")
+
+    # ---------------- PUNTAJES ----------------
+    def mostrar_puntajes(self):
+        self.estado = "puntajes"
+        self.canvas.delete("all")
+        self.canvas.create_text(250, 80,
+                                text="PUNTAJES",
+                                fill="yellow",
+                                font=("Arial", 24))
+
+        y = 140
+        for nombre, score in self.puntajes[-5:][::-1]:
+            self.canvas.create_text(250, y,
+                                    text=f"{nombre}: {score}",
+                                    fill="white",
+                                    font=("Arial", 16))
+            y += 30
+
+        self.canvas.create_text(250, 420,
+                                text="ENTER para volver",
+                                fill="gray")
+
+    # ---------------- TECLAS ----------------
+    def teclas(self, event):
+        t = event.keysym
+
+        if self.estado == "menu":
+            if t == "Up":
+                self.menu_index = (self.menu_index - 1) % len(self.menu_opciones)
+                self.mostrar_menu()
+            elif t == "Down":
+                self.menu_index = (self.menu_index + 1) % len(self.menu_opciones)
+                self.mostrar_menu()
+            elif t == "Return":
+                opcion = self.menu_opciones[self.menu_index]
+                if opcion == "Iniciar Juego":
+                    self.iniciar_juego()
+                elif opcion == "Reglas":
+                    self.mostrar_reglas()
+                elif opcion == "Puntajes":
+                    self.mostrar_puntajes()
+                elif opcion == "Salir":
+                    self.root.quit()
+
+        elif self.estado == "juego":
+            if t in ["Up", "Down", "Left", "Right"]:
+                if (t == "Up" and self.direccion != "Down" or
+                    t == "Down" and self.direccion != "Up" or
+                    t == "Left" and self.direccion != "Right" or
+                    t == "Right" and self.direccion != "Left"):
+                    self.direccion = t
+            elif t.lower() == "p":
+                self.pausa = not self.pausa
+            elif t == "Escape":
+                self.mostrar_menu()
+
+        elif self.estado == "guardar":
+            if t == "Return":
+                self.guardar_puntaje()
+
+        elif self.estado in ["reglas", "puntajes"]:
+            if t == "Return":
+                self.mostrar_menu()
+
+
 def main():
     root = tk.Tk()
-    app = SnakeGame(root)
+    SnakeGame(root)
     root.mainloop()
 
 if __name__ == "__main__":
